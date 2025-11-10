@@ -1,0 +1,243 @@
+defmodule RealProductSizeBackendWeb.Api.ProductController do
+  use RealProductSizeBackendWeb, :controller
+
+  alias RealProductSizeBackend.{Products, Crawling, AmazonCrawler, MockDataService, TriPoService, UserProducts}
+  alias RealProductSizeBackend.Jobs.Generate3DModelJob
+
+  require Logger
+
+  @doc """
+  Lists products with pagination and filters.
+  """
+  def index(conn, params) do
+    # Demo: Use mock data if configured
+    if Application.get_env(:real_product_size_backend, :debug)[:use_mock_product_data] do
+      products = MockDataService.list_mock_products(params)
+      render(conn, :index, products: products)
+    else
+      # Future: Real database query with pagination, filtering, caching
+      products = Products.list_products(params)
+      render(conn, :index, products: products)
+    end
+  end
+
+  @doc """
+  Gets a single product by ID.
+  """
+  def show(conn, %{"id" => id}) do
+    # Demo: Use mock data if configured
+    if Application.get_env(:real_product_size_backend, :debug)[:use_mock_product_data] do
+      product = MockDataService.get_mock_product(id)
+      render(conn, :show, product: product)
+    else
+      # Future: Real database query with eager loading, caching
+      product = Products.get_product!(id)
+      render(conn, :show, product: product)
+    end
+  end
+
+  @doc """
+  Crawls an Amazon product URL and creates a product.
+  """
+  def crawl(conn, %{"url" => url}) do
+    # Validate URL first
+    case AmazonCrawler.validate_amazon_url(url) do
+      {:error, reason} ->
+        conn
+        |> put_status(400)
+        |> json(%{error: "Invalid URL", reason: reason})
+
+      {:ok, cleaned_url} ->
+        # Demo: Skip real crawling if configured
+        if Application.get_env(:real_product_size_backend, :debug)[:skip_crawler] do
+          # Return mock product data for demo
+          mock_product = MockDataService.generate_mock_product_from_url(cleaned_url)
+
+          # Log the mock crawl for analytics
+          Crawling.create_crawling_history(%{
+            source_url: cleaned_url,
+            source_type: "amazon",
+            status: "success",
+            user_id: conn.assigns.current_user.id,
+            crawler_config: %{mock: true, reason: "demo_mode"}
+          })
+
+          # Trigger 3D model generation if enabled
+          if TriPoService.enabled?() do
+            %{product_id: mock_product.id}
+            |> Generate3DModelJob.new()
+            |> Oban.insert()
+
+            # Update mock product to show generation status
+            _mock_product = Map.put(mock_product, :model_generation_status, "generating")
+          end
+
+          render(conn, :show, product: mock_product)
+        else
+          # Future: Real crawling with queue system, retry logic, anti-bot detection
+          crawl_real_product(conn, cleaned_url)
+        end
+    end
+  end
+
+  @doc """
+  Searches products by query.
+  """
+  def search(conn, %{"q" => query}) do
+    if Application.get_env(:real_product_size_backend, :debug)[:use_mock_product_data] do
+      products = MockDataService.search_mock_products(query)
+      render(conn, :index, products: products)
+    else
+      # Future: Full-text search with Elasticsearch, relevance scoring, faceted search
+      products = Products.search_products(query, conn.params)
+      render(conn, :index, products: products)
+    end
+  end
+
+  @doc """
+  Gets products by category.
+  """
+  def by_category(conn, %{"category" => category}) do
+    if Application.get_env(:real_product_size_backend, :debug)[:use_mock_product_data] do
+      products = MockDataService.list_mock_products()
+      filtered_products = Enum.filter(products, &(&1.category == category))
+      render(conn, :index, products: filtered_products)
+    else
+      products = Products.get_products_by_category(category, conn.params)
+      render(conn, :index, products: products)
+    end
+  end
+
+  @doc """
+  Gets products by brand.
+  """
+  def by_brand(conn, %{"brand" => brand}) do
+    if Application.get_env(:real_product_size_backend, :debug)[:use_mock_product_data] do
+      products = MockDataService.list_mock_products()
+      filtered_products = Enum.filter(products, &(&1.brand == brand))
+      render(conn, :index, products: filtered_products)
+    else
+      products = Products.get_products_by_brand(brand, conn.params)
+      render(conn, :index, products: products)
+    end
+  end
+
+  @doc """
+  Gets product categories.
+  """
+  def categories(conn, _params) do
+    if Application.get_env(:real_product_size_backend, :debug)[:use_mock_product_data] do
+      categories = MockDataService.get_mock_categories()
+      json(conn, %{categories: categories})
+    else
+      # Future: Get categories from database
+      categories = ["Electronics", "Home & Kitchen", "Sports & Outdoors"]
+      json(conn, %{categories: categories})
+    end
+  end
+
+  @doc """
+  Gets product brands.
+  """
+  def brands(conn, _params) do
+    if Application.get_env(:real_product_size_backend, :debug)[:use_mock_product_data] do
+      brands = MockDataService.get_mock_brands()
+      json(conn, %{brands: brands})
+    else
+      # Future: Get brands from database
+      brands = ["MockBrand", "DemoCorp", "TestInc"]
+      json(conn, %{brands: brands})
+    end
+  end
+
+  @doc """
+  Gets product statistics.
+  """
+  def stats(conn, _params) do
+    if Application.get_env(:real_product_size_backend, :debug)[:use_mock_product_data] do
+      stats = %{
+        total_products: 4,
+        verified_products: 4,
+        needs_review: 0,
+        verification_rate: 1.0
+      }
+      json(conn, stats)
+    else
+      stats = Products.get_product_stats()
+      json(conn, stats)
+    end
+  end
+
+  # Private functions
+
+  defp crawl_real_product(conn, url) do
+    # Start crawling process
+    case AmazonCrawler.crawl_product(url) do
+      {:ok, product_data} ->
+        # Create product and crawling history
+        with {:ok, product} <- Products.create_product(product_data),
+             {:ok, _history} <- Crawling.create_crawling_history(%{
+               source_url: url,
+               source_type: "amazon",
+               status: "success",
+               product_id: product.id,
+               user_id: conn.assigns.current_user.id
+             }) do
+
+          # Trigger 3D model generation if enabled
+          if TriPoService.enabled?() do
+            %{product_id: product.id}
+            |> Generate3DModelJob.new()
+            |> Oban.insert()
+
+            # Update product generation status
+            _product = Map.put(product, :model_generation_status, "generating")
+          end
+
+          render(conn, :show, product: product)
+        end
+
+      {:error, reason} ->
+        # Log failed crawl
+        Crawling.create_crawling_history(%{
+          source_url: url,
+          source_type: "amazon",
+          status: "failed",
+          error_message: reason,
+          user_id: conn.assigns.current_user.id
+        })
+
+        conn
+        |> put_status(422)
+        |> json(%{error: "Failed to crawl product", reason: reason})
+    end
+  end
+end
+
+  @doc """
+  Gets all products crawled by the authenticated user.
+  """
+  def user_products(conn, _params) do
+    user = conn.assigns.current_user
+
+    case user do
+      nil ->
+        conn
+        |> put_status(401)
+        |> json(%{error: "Authentication required"})
+
+      user ->
+        # Get user products from database
+        user_id = user.id
+
+        # For now, return empty list as UserProducts integration needs user ID type matching
+        # TODO: Properly map user ID types between authentication and UserProducts
+        products = []
+
+        # TODO: Uncomment when UserProducts user_id type is properly matched
+        # user_products = UserProducts.list_user_products(user_id)
+        # products = Enum.map(user_products, fn up -> up.product end)
+
+        render(conn, :index, products: products)
+    end
+  end

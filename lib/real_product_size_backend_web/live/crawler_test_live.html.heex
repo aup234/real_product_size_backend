@@ -1,0 +1,360 @@
+<div class="container mx-auto p-6">
+  <h1 class="text-3xl font-bold mb-6 text-black">Product Crawler Test</h1>
+
+  <script>
+    function copyToClipboard(elementId) {
+      const element = document.getElementById(elementId);
+      if (element) {
+        navigator.clipboard.writeText(element.textContent).then(function() {
+          // Optional: Show a brief success message
+          const button = document.querySelector(`button[onclick="copyToClipboard('${elementId}')"]`);
+          if (button) {
+            const originalText = button.textContent;
+            button.textContent = 'Copied!';
+            button.classList.add('bg-green-500');
+            button.classList.remove('bg-blue-500');
+            setTimeout(function() {
+              button.textContent = originalText;
+              button.classList.remove('bg-green-500');
+              button.classList.add('bg-blue-500');
+            }, 1000);
+          }
+        }).catch(function(err) {
+          console.error('Could not copy text: ', err);
+          alert('Failed to copy to clipboard');
+        });
+      }
+    }
+  </script>
+
+  <!-- Config Display -->
+  <div class="bg-gray-100 p-4 rounded-lg mb-6">
+    <h2 class="text-xl font-semibold mb-2 text-black">Configuration</h2>
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+      <div>
+        <label class="block text-black font-medium">AI Crawler Enabled</label>
+        <p class="text-lg font-bold" style={if @config.ai_crawler_enabled, do: "color: green;", else: "color: red;"}>
+          <%= if @config.ai_crawler_enabled, do: "Yes", else: "No" %>
+        </p>
+      </div>
+      <div>
+        <label class="block text-black font-medium">Default Provider</label>
+        <p class="font-bold text-black"><%= @config.default_provider %></p>
+      </div>
+      <div>
+        <label class="block text-black font-medium">Max HTML Size</label>
+        <p class="font-bold text-black"><%= @config.max_html_size %> bytes</p>
+      </div>
+      <div>
+        <label class="block text-black font-medium">Grok API Key</label>
+        <p class="font-mono text-sm text-black"><%= @config.grok_api_key %></p>
+      </div>
+      <div>
+        <label class="block text-black font-medium">Gemini API Key</label>
+        <p class="font-mono text-sm text-black"><%= @config.gemini_api_key %></p>
+      </div>
+      <div>
+        <label class="block text-black font-medium">OpenRouter API Key</label>
+        <p class="font-mono text-sm text-black"><%= @config.openrouter_api_key %></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Form -->
+  <form phx-submit="run_test" class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-6">
+    <div class="mb-4">
+      <label class="block text-black text-sm font-bold mb-2" for="url">
+        URL
+      </label>
+      <input class="shadow appearance-none border rounded w-full py-2 px-3 text-black leading-tight focus:outline-none focus:shadow-outline" id="url" type="url" name="url" value={@url} placeholder="Enter product URL" phx-change="url_changed" required />
+
+      <!-- URL Cleaner Display -->
+      <%= if @url_display_info && @url_display_info.is_cleaned do %>
+        <div class="mt-2 p-3 bg-blue-50 border border-blue-200 rounded">
+          <p class="text-sm text-blue-800 font-medium mb-1">Cleaned URL:</p>
+          <p class="text-sm text-blue-600 break-all">
+            <a href={@url_display_info.cleaned} target="_blank" class="hover:text-blue-800 underline">
+              <%= @url_display_info.cleaned %>
+            </a>
+          </p>
+          <p class="text-xs text-blue-500 mt-1">
+            Removed unnecessary parameters for cleaner product identification
+          </p>
+        </div>
+      <% end %>
+
+      <!-- Website Detection Display -->
+      <%= if @website_type do %>
+        <div class="mt-2 p-3 bg-green-50 border border-green-200 rounded">
+          <p class="text-sm text-green-800 font-medium mb-2">Website Detection:</p>
+          <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-2">
+              <img src={get_website_logo_by_type(@website_type)}
+                   alt={"#{@website_type} Logo"}
+                   class="w-5 h-5 object-contain"
+                   onerror="this.style.display='none';">
+              <span class="text-sm text-green-700 font-medium">
+                <%= String.capitalize(to_string(@website_type)) %>
+              </span>
+            </div>
+            <span class="text-sm text-green-700">
+              <strong>Adapter:</strong> <%= @website_adapter %>
+            </span>
+          </div>
+          <p class="text-xs text-green-600 mt-1">
+            Using specialized extraction logic for this website
+          </p>
+        </div>
+      <% end %>
+    </div>
+
+    <!-- Predefined URLs Block -->
+    <div class="mb-6">
+      <label class="block text-black text-sm font-bold mb-2">
+        Predefined Test URLs
+      </label>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <%= for item <- @predefined_urls do %>
+          <div class="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer" phx-click="select_url" phx-value-url={get_url_from_item(item)}>
+            <div class="flex items-start space-x-3">
+              <div class="flex-shrink-0">
+                <div class="w-12 h-12 bg-white rounded-lg flex items-center justify-center border border-gray-200 shadow-sm">
+                  <img src={get_website_logo(item["website"])}
+                       alt={"#{item["website"]} Logo"}
+                       class="w-10 h-10 object-contain"
+                       onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                  <div class="w-10 h-10 bg-gray-100 rounded flex items-center justify-center" style="display: none;">
+                    <span class="text-xs font-bold text-gray-600"><%= item["region"] %></span>
+                  </div>
+                </div>
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-gray-900 truncate"><%= item["label"] %></p>
+                <p class="text-xs text-gray-500 truncate"><%= item["description"] %></p>
+                <div class="mt-1 flex items-center space-x-2">
+                  <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                    <%= item["region"] %>
+                  </span>
+                  <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                    <%= item["website"] %>
+                  </span>
+                  <span class="text-xs text-gray-400 truncate">
+                    <%= String.slice(item["url"], 0, 30) %>...
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        <% end %>
+      </div>
+    </div>
+
+    <!-- Crawler Block -->
+    <div class="mb-6">
+      <label class="block text-black text-sm font-bold mb-2">
+        Crawler Type
+      </label>
+      <div class="space-y-2">
+        <%= for {label, value} <- @crawlers do %>
+          <label class="flex items-center p-3 border rounded-md cursor-pointer hover:bg-gray-50 border-gray-300" style={if @crawler == value, do: "background-color: #dbeafe; border-color: #3b82f6;", else: ""}>
+            <input type="radio" name="crawler" value={value} checked={@crawler == value} phx-change="select_crawler" phx-value-crawler={value} class="mr-2" />
+            <span class="text-sm text-black"><%= label %></span>
+          </label>
+        <% end %>
+      </div>
+    </div>
+
+    <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed" disabled={@loading}>
+      <%= if @loading do %>
+        <span class="flex items-center justify-center">
+          <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          Running...
+        </span>
+      <% else %>
+        Run Test
+      <% end %>
+    </button>
+    <%= if @job_status do %>
+      <div class="mt-2 text-sm text-gray-600">
+        <p>Job Status: <%= @job_status %></p>
+        <%= if @job_id, do: " (ID: #{@job_id})", else: "" %>
+      </div>
+    <% end %>
+  </form>
+
+  <!-- Error -->
+  <%= if @error do %>
+    <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+      <%= @error %>
+    </div>
+  <% end %>
+
+  <!-- Debug Information -->
+  <%= if @debug_info do %>
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
+      <h2 class="text-2xl font-bold mb-4 text-blue-800">Debug Information</h2>
+
+      <!-- Extracted HTML Data -->
+      <%= if @extracted_html_data do %>
+        <div class="mb-4">
+          <h3 class="text-lg font-semibold mb-2 text-blue-700">Extracted HTML Data</h3>
+          <div class="bg-white border rounded p-3 text-sm text-black">
+            <p><strong>Title:</strong> <%= @extracted_html_data[:title] || "Not found" %></p>
+            <p><strong>Price:</strong> <%= @extracted_html_data[:price] || "Not found" %></p>
+            <p><strong>Rating:</strong> <%= @extracted_html_data[:rating] || "Not found" %></p>
+            <p><strong>Features:</strong> <%= if @extracted_html_data[:features], do: String.slice(@extracted_html_data[:features], 0, 200) <> "...", else: "Not found" %></p>
+            <p><strong>Images found:</strong> <%= length(@extracted_html_data[:images] || []) %></p>
+            <p><strong>All text length:</strong> <%= String.length(@extracted_html_data[:all_text] || "") %> characters</p>
+          </div>
+        </div>
+      <% end %>
+
+      <!-- Raw Prompt -->
+      <%= if @raw_prompt do %>
+        <div class="mb-4">
+          <h3 class="text-lg font-semibold mb-2 text-blue-700">Prompt Sent to AI</h3>
+          <div class="bg-white border rounded p-3">
+            <div class="flex justify-between items-center mb-2">
+              <span class="text-sm text-gray-600">Length: <%= String.length(@raw_prompt) %> characters</span>
+              <button onclick="copyToClipboard('prompt-text')" class="text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600">Copy</button>
+            </div>
+            <pre id="prompt-text" class="text-xs text-black overflow-auto max-h-64 whitespace-pre-wrap font-mono"><%= @raw_prompt %></pre>
+          </div>
+        </div>
+      <% end %>
+
+      <!-- Raw AI Response -->
+      <%= if @raw_response do %>
+        <div class="mb-4">
+          <h3 class="text-lg font-semibold mb-2 text-blue-700">Raw AI Response</h3>
+          <div class="bg-white border rounded p-3">
+            <div class="flex justify-between items-center mb-2">
+              <span class="text-sm text-gray-600">Length: <%= String.length(inspect(@raw_response)) %> characters</span>
+              <button onclick="copyToClipboard('response-text')" class="text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600">Copy</button>
+            </div>
+            <pre id="response-text" class="text-xs text-black overflow-auto max-h-64 whitespace-pre-wrap font-mono"><%= inspect(@raw_response, limit: :infinity) %></pre>
+          </div>
+        </div>
+      <% end %>
+
+      <!-- Parsing Error -->
+      <%= if @parsing_error do %>
+        <div class="mb-4">
+          <h3 class="text-lg font-semibold mb-2 text-red-700">Parsing Error</h3>
+          <div class="bg-red-50 border border-red-200 rounded p-3">
+            <pre class="text-sm text-red-800 font-mono"><%= inspect(@parsing_error) %></pre>
+          </div>
+        </div>
+      <% end %>
+
+      <!-- Debug Info Summary -->
+      <div class="mt-4">
+        <h3 class="text-lg font-semibold mb-2 text-blue-700">Debug Summary</h3>
+        <div class="bg-white border rounded p-3 text-sm text-black">
+          <p><strong>Provider:</strong> <%= @debug_info[:provider] || "Unknown" %></p>
+          <p><strong>Model:</strong> <%= @debug_info[:model] || "Unknown" %></p>
+          <p><strong>URL:</strong> <%= @debug_info[:url] || "Unknown" %></p>
+          <p><strong>Website Type:</strong> <%= @website_type || "Unknown" %></p>
+          <p><strong>Website Adapter:</strong> <%= @website_adapter || "Unknown" %></p>
+          <%= if @debug_info[:service_error] do %>
+            <p><strong>Service Error:</strong> <span class="text-red-600"><%= inspect(@debug_info[:service_error]) %></span></p>
+          <% end %>
+        </div>
+      </div>
+    </div>
+  <% end %>
+
+  <!-- Result -->
+  <%= if @formatted_data do %>
+    <div class="bg-green-50 border border-green-200 rounded-lg p-6 text-black">
+      <h2 class="text-2xl font-bold mb-4 text-green-800">Extraction Successful!</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Core Product Info -->
+        <div>
+          <h3 class="text-lg font-semibold mb-2">Product Information</h3>
+          <p><strong>Title:</strong> <%= @formatted_data.title %></p>
+          <div class="mb-2">
+            <p><strong>URL:</strong></p>
+            <%= if @url_display_info && @url_display_info.is_cleaned do %>
+              <div class="ml-4 space-y-1">
+                <p class="text-sm text-gray-600">
+                  <strong>Cleaned:</strong>
+                  <a href={@url_display_info.cleaned} target="_blank" class="text-blue-600 hover:text-blue-800 underline break-all">
+                    <%= @url_display_info.cleaned %>
+                  </a>
+                </p>
+                <details class="text-sm">
+                  <summary class="cursor-pointer text-gray-500 hover:text-gray-700">Show original URL</summary>
+                  <p class="mt-1 text-gray-500 break-all">
+                    <a href={@url} target="_blank" class="text-blue-600 hover:text-blue-800 underline">
+                      <%= @url %>
+                    </a>
+                  </p>
+                </details>
+              </div>
+            <% else %>
+              <a href={@url} target="_blank" class="text-blue-600 hover:text-blue-800 underline break-all"><%= @url %></a>
+            <% end %>
+          </div>
+          <p><strong>Dimensions:</strong> <%= @formatted_data.dimensions_str %></p>
+          <p><strong>Images:</strong> <%= length(@formatted_data.images) %> found</p>
+        </div>
+
+        <!-- Quality Info -->
+        <div>
+          <h3 class="text-lg font-semibold mb-2">Quality Assessment</h3>
+          <p><strong>Quality Score:</strong> <span style={if @quality_info.is_acceptable, do: "color: green;", else: "color: red;"} font-weight="bold"><%= Float.round(@quality_info.quality_score * 100, 1) %>%</span></p>
+          <%= if @quality_info.issues != [] do %>
+            <p><strong>Issues (<%= length(@quality_info.issues) %>):</strong></p>
+            <ul class="list-disc list-inside text-red-600">
+              <%= for issue <- @quality_info.issues do %>
+                <li><%= issue %></li>
+              <% end %>
+            </ul>
+          <% else %>
+            <p class="text-green-600">No issues found!</p>
+          <% end %>
+          <%= if @quality_info.suggestions != [] do %>
+            <p><strong>Suggestions (<%= length(@quality_info.suggestions) %>):</strong></p>
+            <ul class="list-disc list-inside text-blue-600">
+              <%= for suggestion <- @quality_info.suggestions do %>
+                <li><%= suggestion %></li>
+              <% end %>
+            </ul>
+          <% end %>
+        </div>
+      </div>
+
+
+      <!-- Images -->
+      <%= if length(@formatted_data.images) > 0 do %>
+        <div class="mt-4">
+          <h3 class="text-lg font-semibold mb-2">Images (<%= length(@formatted_data.images) %> found)</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <%= for img <- @formatted_data.images do %>
+              <div class="border rounded overflow-hidden">
+                <a href={img} target="_blank" class="block">
+                  <img src={img} alt="Product Image" class="w-full object-contain max-h-96" />
+                </a>
+              </div>
+            <% end %>
+          </div>
+        </div>
+      <% else %>
+        <div class="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
+          <p class="text-yellow-700">No images extracted. Check HTML for img tags.</p>
+        </div>
+      <% end %>
+
+      <!-- Metadata -->
+      <div class="mt-6 text-sm text-gray-600 bg-gray-50 p-4 rounded">
+        <p><strong>Extracted At:</strong> <%= Calendar.strftime(@formatted_data.extracted_at, "%Y-%m-%d %H:%M:%S UTC") %></p>
+        <p><strong>Crawler Type:</strong> <%= @formatted_data.crawler_type %></p>
+        <p><strong>AI Provider:</strong> <%= @formatted_data.ai_provider %></p>
+      </div>
+    </div>
+  <% end %>
+</div>

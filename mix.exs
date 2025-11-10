@@ -67,11 +67,13 @@ defmodule RealProductSizeBackend.MixProject do
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
       {:bcrypt_elixir, "~> 3.0"},
-      {:tidewave, "~> 0.2", only: :dev},
+      {:tidewave, "~> 0.5", only: :dev},
       {:oban, "~> 2.12"},
       {:ecto_dev_logger, "~> 0.14", only: :dev},
       {:logger_file_backend, "~> 0.0.14"},
       {:finch, "~> 0.18"},
+      {:joken, "~> 2.6"},
+      {:req_llm, "~> 1.0.0-rc.5"}
     ]
   end
 

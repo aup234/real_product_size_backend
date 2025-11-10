@@ -17,7 +17,7 @@ defmodule RealProductSizeBackendWeb do
   those modules here.
   """
 
-  def static_paths, do: ~w(assets fonts images favicon.ico robots.txt)
+  def static_paths, do: ~w(assets fonts images favicon.ico robots.txt product_imgs 3d)
 
   def router do
     quote do

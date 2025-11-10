@@ -155,4 +155,38 @@ defmodule RealProductSizeBackend.Accounts.UserToken do
   defp by_token_and_context_query(token, context) do
     from UserToken, where: [token: ^token, context: ^context]
   end
+
+  def user_and_contexts_query(user, :all) do
+    from t in UserToken, where: t.user_id == ^user.id
+  end
+
+  def user_and_contexts_query(user, contexts) when is_list(contexts) do
+    from t in UserToken, where: t.user_id == ^user.id and t.context in ^contexts
+  end
+
+  def token_and_context_query(token, context) do
+    by_token_and_context_query(token, context)
+  end
+
+  def verify_email_token_query(token, context) do
+    case Base.url_decode64(token, padding: false) do
+      {:ok, decoded_token} ->
+        hashed_token = :crypto.hash(@hash_algorithm, decoded_token)
+
+        validity_days = case context do
+          "confirm" -> 7
+          "reset_password" -> 1
+          _ -> 7
+        end
+
+        query =
+          from token in by_token_and_context_query(hashed_token, context),
+            where: token.inserted_at > ago(^validity_days, "day")
+
+        {:ok, query}
+
+      :error ->
+        :error
+    end
+  end
 end

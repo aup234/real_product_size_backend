@@ -77,7 +77,7 @@ config :logger, :default_formatter,
 config :phoenix, :json_library, Jason
 
 # Oban configuration
-config :RealProductSizeBackend, Oban,
+config :real_product_size_backend, Oban,
   engine: Oban.Engines.Basic,
   notifier: Oban.Notifiers.Postgres,
   queues: [default: 10],
