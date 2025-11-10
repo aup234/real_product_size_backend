@@ -1,0 +1,165 @@
+#!/bin/bash
+
+# REALPRODUCTSIZEBACKEND Simple Restart Script
+# Matches your usual workflow: check port -> kill beam.smp -> start server
+
+set -e
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+# Get environment
+MIX_ENV=${MIX_ENV:-dev}
+
+# Determine port based on environment
+get_port() {
+    if [ "$MIX_ENV" = "prod" ]; then
+        # Production: check PORT env var first, then parse runtime.exs
+        if [ -n "$PORT" ]; then
+            echo "$PORT"
+        else
+            # Parse config/runtime.exs for default port
+            local port=$(grep -E 'String\.to_integer.*PORT.*\|\|' config/runtime.exs 2>/dev/null | sed -E 's/.*\|\|[[:space:]]*"([0-9]+)".*/\1/' | head -1)
+            if [ -n "$port" ] && [ "$port" -eq "$port" ] 2>/dev/null; then
+                echo "$port"
+            else
+                echo "4000"  # Phoenix default
+            fi
+        fi
+    else
+        # Development: parse config/dev.exs
+        local port=$(grep -A 2 "http:" config/dev.exs 2>/dev/null | grep "port:" | sed -E 's/.*port:[[:space:]]*([0-9]+).*/\1/' | head -1)
+        if [ -n "$port" ] && [ "$port" -eq "$port" ] 2>/dev/null; then
+            echo "$port"
+        else
+            echo "4000"  # Phoenix default
+        fi
+    fi
+}
+
+PORT=$(get_port)
+
+echo -e "${BLUE}🔧 Simple restart for REALPRODUCTSIZEBACKEND (MIX_ENV=$MIX_ENV, port=$PORT)${NC}"
+
+# Parse options
+DO_GIT_PULL=false
+KILL_ONLY=false
+SHOW_HELP=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -g|--git)
+            DO_GIT_PULL=true
+            shift
+            ;;
+        -k|--kill|--stop)
+            KILL_ONLY=true
+            shift
+            ;;
+        -h|--help)
+            SHOW_HELP=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            SHOW_HELP=true
+            shift
+            ;;
+    esac
+done
+
+if [ "$SHOW_HELP" = true ]; then
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  -g, --git      Git pull and compile before restart"
+    echo "  -k, --kill     Kill the app process only (no restart)"
+    echo "  -h, --help     Show this help"
+    echo ""
+    echo "Environment:"
+    echo "  MIX_ENV=prod $0    # Production mode"
+    echo "  MIX_ENV=dev $0     # Development mode (default)"
+    echo ""
+    echo "Examples:"
+    echo "  $0             # Simple restart"
+    echo "  $0 --git       # Git pull + compile + restart"
+    echo "  $0 --kill      # Just kill the process"
+    exit 0
+fi
+
+# Step 1: Git pull and compile (if requested and not kill-only)
+if [ "$DO_GIT_PULL" = true ] && [ "$KILL_ONLY" = false ]; then
+    echo -e "${YELLOW}📥 Git pull...${NC}"
+    git pull
+
+    echo -e "${YELLOW}🔨 Compiling...${NC}"
+    if [ "$MIX_ENV" = "prod" ]; then
+        MIX_ENV=prod mix compile
+    else
+        mix compile
+    fi
+fi
+
+# Step 2: Check what's running on the port
+echo -e "${YELLOW}🔍 Checking port $PORT...${NC}"
+RUNNING_PID=$(lsof -ti :$PORT 2>/dev/null || true)
+
+if [ -n "$RUNNING_PID" ]; then
+    # Check if there are multiple PIDs (sometimes lsof returns multiple lines)
+    PID_COUNT=$(echo "$RUNNING_PID" | wc -l)
+    if [ "$PID_COUNT" -gt 1 ]; then
+        echo -e "${YELLOW}⏹️  Killing $PID_COUNT processes using port $PORT...${NC}"
+        for pid in $RUNNING_PID; do
+            echo -e "${YELLOW}    Killing PID: $pid${NC}"
+            kill "$pid" 2>/dev/null || true
+        done
+    else
+        echo -e "${YELLOW}⏹️  Killing process using port $PORT (PID: $RUNNING_PID)...${NC}"
+        kill "$RUNNING_PID" 2>/dev/null || true
+    fi
+
+    # Wait a moment for processes to die
+    sleep 2
+
+    # Verify port is now free
+    STILL_RUNNING=$(lsof -ti :$PORT 2>/dev/null || true)
+    if [ -n "$STILL_RUNNING" ]; then
+        echo -e "${YELLOW}⚠️  Process still running on port $PORT, force killing...${NC}"
+        kill -9 "$STILL_RUNNING" 2>/dev/null || true
+        sleep 1
+    fi
+else
+    echo -e "${GREEN}✅ Port $PORT is available${NC}"
+fi
+
+# Step 3: Start the server (unless kill-only mode)
+if [ "$KILL_ONLY" = true ]; then
+    echo -e "${GREEN}✅ Process killed. Use './bin/app' to restart.${NC}"
+    exit 0
+fi
+
+echo -e "${YELLOW}🚀 Starting server...${NC}"
+
+if [ "$MIX_ENV" = "prod" ]; then
+    echo -e "${BLUE}Starting in production mode (detached)...${NC}"
+    MIX_ENV=prod elixir --erl "-detached" -S mix phx.server &
+    sleep 3
+
+    # Check if it started
+    NEW_PID=$(lsof -ti :$PORT 2>/dev/null || true)
+    if [ -n "$NEW_PID" ]; then
+        echo -e "${GREEN}✅ Server started successfully (PID: $NEW_PID)${NC}"
+        echo -e "${GREEN}🌐 Visit: http://localhost:$PORT${NC}"
+    else
+        echo -e "${RED}❌ Failed to start server${NC}"
+        exit 1
+    fi
+else
+    echo -e "${BLUE}Starting in development mode...${NC}"
+    echo -e "${YELLOW}💡 Tip: Use Ctrl+C to stop, or run this script again to restart${NC}"
+    mix phx.server
+fi

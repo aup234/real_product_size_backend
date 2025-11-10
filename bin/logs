@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# Log viewing script for Phoenix application
+# Usage: ./bin/logs [info|error|all] [lines]
+
+LOG_TYPE=${1:-all}
+LINES=${2:-50}
+
+case $LOG_TYPE in
+  info)
+    echo "=== INFO LOG (last $LINES lines) ==="
+    tail -n $LINES logs/info.log 2>/dev/null || echo "Info log not found"
+    ;;
+  error)
+    echo "=== ERROR LOG (last $LINES lines) ==="
+    tail -n $LINES logs/error.log 2>/dev/null || echo "Error log not found"
+    ;;
+  all)
+    echo "=== INFO LOG (last $LINES lines) ==="
+    tail -n $LINES logs/info.log 2>/dev/null || echo "Info log not found"
+    echo ""
+    echo "=== ERROR LOG (last $LINES lines) ==="
+    tail -n $LINES logs/error.log 2>/dev/null || echo "Error log not found"
+    ;;
+  follow-info)
+    echo "=== Following INFO LOG (Ctrl+C to exit) ==="
+    tail -f logs/info.log 2>/dev/null || echo "Info log not found"
+    ;;
+  follow-error)
+    echo "=== Following ERROR LOG (Ctrl+C to exit) ==="
+    tail -f logs/error.log 2>/dev/null || echo "Error log not found"
+    ;;
+  *)
+    echo "Usage: $0 [info|error|all|follow-info|follow-error] [lines]"
+    echo "Examples:"
+    echo "  $0 info 100      # Show last 100 lines of info log"
+    echo "  $0 error         # Show last 50 lines of error log"
+    echo "  $0 all 20        # Show last 20 lines of both logs"
+    echo "  $0 follow-error  # Follow error log in real-time"
+    ;;
+esac
